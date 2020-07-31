@@ -1,8 +1,10 @@
 ﻿// Learn more about F# at http://fsharp.org
 
 open System
+open System.Linq
 open b0wter.CouchDb.Lib
 open b0wter.FSharp
+open b0wter.FSharp.Collections
 open Newtonsoft.Json.Linq
 
 let readUserName () =
@@ -53,58 +55,56 @@ let checkDatabaseExists props database =
 
 let getDocuments props database (selector: Mango.Expression) =
     async {
-        do printfn "%s" (Newtonsoft.Json.JsonConvert.SerializeObject(selector))
-        let! result = Databases.Find.queryObjectsAsResult props database selector
+        do printfn "Using the following selector:"
+        let! result = Databases.Find.queryJObjectsAsResultWithOutput props database selector
+        let count = result |> Helpers.Result.get (fun r -> r.docs.Length) (fun _ -> 0)
+        do printfn "Found %i matching documents." count
         return result |> Result.mapBoth (fun r -> r.docs) (fun e -> (e |> ErrorRequestResult.asString))
     }
 
 
-(*
-let addToDocument<'a> (path: string) (value: 'a) (j: JObject) =
-    let rec run (parts: string list) (current: JProperty) =
-        function
-        | [ propertyName ] -> current.Add(JProperty(propertyName, value))
-        | head :: tail -> if current.Type = JTokenType.Object
-    let parts = path.Split(":")
-    *)
+let modifyDocuments (migration: Migration.Migration) (docs: JObject list) : Result<JObject list, string> =
+    docs |> migration.ModifyDocuments
 
 
-let modifyDocument (migration: Migration.T) (j: JObject) =
-    try
-        do migration.ToRemove |> List.iter (fun toRemove -> j.SelectTokens(toRemove) |> Seq.iter (fun t -> t.Remove()))
-        Ok j
-    with
-    | err -> Error err.Message
-    
-
-let modifyDocuments (migration: Migration.T) (docs: JObject list) : Result<JObject list, string> =
-    docs 
-    |> List.map (modifyDocument migration)
-    |> Result.all
-
-
-let saveDocuments (migration: Migration.T) props (docs: JObject list) =
+let saveDocuments (migration: Migration.Migration) props (docs: JObject list) =
     let foldResponse (response: Databases.BulkAdd.Response) =
         let formatError (f: Databases.BulkAdd.Failure) = sprintf "'%A' - %s: %s" f.id f.error f.reason
         let rec run (successes, failures) (results: Databases.BulkAdd.InsertResult list) =
             match results with
-            | [] -> (successes, failures)
-            | head :: tail -> match head with
-                              | Databases.BulkAdd.InsertResult.Success s -> (s.id :: successes, failures)
-                              | Databases.BulkAdd.InsertResult.Failure f -> (successes, (f |> formatError) :: failures)
+            | [] -> 
+                (successes, failures)
+            | head :: tail -> 
+                match head with
+                | Databases.BulkAdd.InsertResult.Success s -> run (s.id :: successes, failures) tail
+                | Databases.BulkAdd.InsertResult.Failure f -> run (successes, (f |> formatError) :: failures) tail
         run ([], []) response
     Databases.BulkAdd.queryAsResult props migration.Database docs
     |> AsyncResult.map (fun response -> response |> foldResponse)
     |> AsyncResult.mapError (fun error -> error |> ErrorRequestResult.asString)
     
 
-let getDocumentsForMigration (m: Migration.T) props =
+let printDocuments (migration: Migration.Migration) props (docs: JObject list) =
+    let serialized = docs |> List.map (Core.serializeAsJson [])
+    let print (s: string) =
+        printfn "----- DOCUMENT START -----"
+        printfn "%s" s
+
+    do serialized |> List.iter print
+
+    async {
+        let ids = (docs |> List.map (fun d -> d.["_id"].ToString() |> Guid.Parse))
+        return Ok (ids, [])
+    }
+
+
+let getDocumentsForMigration (m: Migration.Migration) props =
     let _checkDataBaseExists = fun (x: unit) -> checkDatabaseExists props m.Database
-    let _getDocuments = fun (x: unit) -> getDocuments props m.Database m.Selector
+    let _getDocuments = fun (x: unit) -> getDocuments props m.Database (m.BuildSelector ())
     authenticate props |> AsyncResult.bindA _checkDataBaseExists |> AsyncResult.bindA _getDocuments |> AsyncResult.bind (modifyDocuments m)
 
 
-let migrate (m: Migration.T)=
+let migrate (isDryRun: bool) (m: Migration.Migration) =
     async {
         let credentials = readCredentials ()
         let props = credentials |> Result.bind (createDbProperties m.Host m.Port m.Database)
@@ -113,9 +113,9 @@ let migrate (m: Migration.T)=
         | Ok p ->
             let _getDocuments = getDocumentsForMigration m
             let _modifyDocuments = modifyDocuments m
-            let _saveDocuments = saveDocuments m p
+            let _outputDocuments = if isDryRun then (printDocuments m p) else (saveDocuments m p)
 
-            return! _getDocuments p |> AsyncResult.bind _modifyDocuments |> AsyncResult.bindA _saveDocuments
+            return! _getDocuments p |> AsyncResult.bind _modifyDocuments |> AsyncResult.bindA _outputDocuments
         | Error e -> return Error e 
     }
         
@@ -130,8 +130,10 @@ let printSuccessResult (successes: Guid list, failures: string list) =
 
 [<EntryPoint>]
 let main argv =
-    let migration = "migration.json" |> IO.File.ReadAllText |> Migration.deserialize 
-    match Async.RunSynchronously (migration |> migrate) with
+    let isDryRun = argv |> Array.exists ((=) "-d")
+    do printfn "You are running a migration %s" (if isDryRun then "as a dry run. Nothing will be sent to the database." else " on a database. This will most likely cause changed in the databse!")
+    let migration = UserMigration.changeOfficerRole ()
+    match Async.RunSynchronously (migration |> migrate isDryRun) with
     | Ok o -> printSuccessResult o
     | Error e  -> printfn "Running the migration failed because, %s" e
     0 // return an integer exit code

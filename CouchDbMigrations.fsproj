@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Helpers.fs" />
     <Compile Include="Migration.fs" />
     <Compile Include="UserMigration.fs" />
     <Compile Include="Program.fs" />
@@ -13,7 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="b0wter.couchdb" Version="2.3.2" />
-    <PackageReference Include="b0wter.Fsharp" Version="4.8.0" />
+    <PackageReference Include="b0wter.Fsharp" Version="4.9.0" />
     <PackageReference Include="Newtonsoft.json" Version="12.0.3" />
   </ItemGroup>
 
