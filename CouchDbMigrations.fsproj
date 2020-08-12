@@ -18,4 +18,8 @@
     <PackageReference Include="Newtonsoft.json" Version="12.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\stimpack\src\shared_entities\SharedEntities.fsproj" />
+  </ItemGroup>
+
 </Project>

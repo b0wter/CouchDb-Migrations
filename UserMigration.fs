@@ -47,12 +47,29 @@ type ChangeOfficerRoleMigration() =
     override this.BuildSelector () =
         condition "type" (Equal <| Text "Platoon") |> createExpression
 
+    member this.RankMap = Map.empty
+                             .Add("Zufü (Zugführer/-in)", SharedEntities.Models.LeadershipRole.PlatoonLeader)
+                             .Add("Zutrufü (Zugtruppführer/-in)", SharedEntities.Models.LeadershipRole.PlatoonDeputy)
+                             .Add("Grufü (Gruppenführer/-in)", SharedEntities.Models.LeadershipRole.SquadLeader)
+                             .Add("stv. Gruppenführer/-in", SharedEntities.Models.LeadershipRole.SquadDeputy)
+
+    member this.ModifyOfficerDoc (officer: JToken) =
+        if officer.Type = JTokenType.Object then
+            do printfn "%s" (officer.ToString())
+            if (officer :?> JObject).ContainsKey("role") then 
+                (officer :?> JObject).Property("role").Remove()
+                do printfn "Removed role"
+        else
+            failwith "The given token is not an object!"
+
     member this.ModifyDocument (doc: JObject) =
         let squadToken = doc.GetValue("squads")
         match squadToken.Type with
         | JTokenType.Array -> 
             let array = squadToken :?> JArray
             let officers = array |> Seq.collect (fun a -> (a.Value<JArray>("officers"))) //:?> JArray)   
+            do printfn "Found %i officers." (officers |> Seq.length)
+            do officers |> Seq.iter this.ModifyOfficerDoc
             Ok doc
         | _ -> Error "Das Feld 'squads' ist kein Array."
 
@@ -60,4 +77,4 @@ type ChangeOfficerRoleMigration() =
         docs |> List.map this.ModifyDocument |> b0wter.FSharp.Result.all
 
 let changeOfficerRole() : Migration =
-    ChangeAssignmentTypeMigration() :> Migration.Migration
+    ChangeOfficerRoleMigration() :> Migration.Migration

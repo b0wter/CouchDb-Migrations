@@ -6,7 +6,9 @@ open Newtonsoft.Json
 open Newtonsoft.Json.Linq
 
 [<AbstractClass>]
-type Migration() =
+type Migration() as this =
+    do printfn "Creating new %s." (this.GetType().Name)
+
     abstract member Database: string
     abstract member Host: string
     abstract member Port: int
