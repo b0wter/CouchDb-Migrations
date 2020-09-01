@@ -110,3 +110,41 @@ type ChangeAllOfficersToActive() =
 
 let changeAllOfficersToActive() : Migration =
     ChangeAllOfficersToActive() :> Migration.Migration
+
+
+type AddQualificationsListToOfficers() =
+    inherit Migration()
+
+    override this.Database = "stimpack"
+    override this.Host = "localhost"
+    override this.Port = 5984
+    override this.Username = "admin"
+    override this.Password = "password"
+    override this.BuildSelector () =
+        condition "type" (Equal <| Text "Platoon") |> createExpression
+
+    member this.ModifyOfficerDoc (officer: JToken) =
+        if officer.Type = JTokenType.Object then
+            do printfn "%s" (officer.ToString())
+            let o = (officer :?> JObject)
+            if o.ContainsKey("qualifications") then ()
+            else do (officer :?> JObject).Add(JProperty("qualifications", JToken.FromObject([])))
+        else
+            failwith "The given token is not an object!"
+
+    member this.ModifyDocument (doc: JObject) =
+        let squadToken = doc.GetValue("squads")
+        match squadToken.Type with
+        | JTokenType.Array -> 
+            let array = squadToken :?> JArray
+            let officers = array |> Seq.collect (fun a -> (a.Value<JArray>("officers"))) //:?> JArray)   
+            do printfn "Found %i officers." (officers |> Seq.length)
+            do officers |> Seq.iter this.ModifyOfficerDoc
+            Ok doc
+        | _ -> Error "Das Feld 'squads' ist kein Array."
+
+    override this.ModifyDocuments docs =
+        docs |> List.map this.ModifyDocument |> b0wter.FSharp.Result.all
+
+let addQualificationsListToOfficers() : Migration =
+    AddQualificationsListToOfficers() :> Migration

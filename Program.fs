@@ -132,7 +132,7 @@ let printSuccessResult (successes: Guid list, failures: string list) =
 let main argv =
     let isDryRun = argv |> Array.exists ((=) "-d")
     do printfn "You are running a migration %s" (if isDryRun then "as a dry run. Nothing will be sent to the database." else " on a database. This will most likely cause changed in the databse!")
-    let migration = UserMigration.changeAllOfficersToActive ()
+    let migration = UserMigration.addQualificationsListToOfficers ()
     match Async.RunSynchronously (migration |> migrate isDryRun) with
     | Ok o -> printSuccessResult o
     | Error e  -> printfn "Running the migration failed because, %s" e
